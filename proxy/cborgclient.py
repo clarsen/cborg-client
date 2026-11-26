@@ -61,6 +61,30 @@ import json
 import requests
 import ssl
 import socket
+import atexit
+import tempfile
+
+
+def make_ca_bundle():
+    """Add the local API's omitted intermediate to the system trust store."""
+    system_cas = ssl.get_default_verify_paths().cafile
+    if not system_cas:
+        raise RuntimeError('No system CA bundle is available')
+    # Leaf AIA caIssuers: http://crt.sectigo.com/InCommonRSAOVSSLCA3.crt
+    # Intermediate SHA-256: 9C:0F:28:8E:AA:BB:71:40:57:01:02:0C:97:2F:81:59:44:62:96:07:8D:38:59:1C:68:49:9B:12:CE:37:94:44
+    intermediate = os.path.join(os.path.dirname(__file__), 'incommon-rsa-ov-ssl-ca-3.pem')
+    with open(system_cas, 'rb') as source, open(intermediate, 'rb') as extra:
+        with tempfile.NamedTemporaryFile(mode='wb', prefix='cborg-cas-', suffix='.pem', delete=False) as bundle:
+            bundle.write(source.read())
+            bundle.write(b'\n')
+            bundle.write(extra.read())
+            path = bundle.name
+    owner = os.getpid()
+    atexit.register(lambda: os.unlink(path) if os.getpid() == owner and os.path.exists(path) else None)
+    return path
+
+
+CA_BUNDLE = make_ca_bundle()
 
 class CBorgUsageMonitor:
 
@@ -154,7 +178,8 @@ class CBorgNetworkMonitor:
                         if ip is not None and self.is_ip_in_subnet(ip, subnet):
                             any_match = True
 
-                if any_match and self.local_api_tls_available():
+                tls_available = self.local_api_tls_available() if any_match else False
+                if any_match and tls_available:
                     cborg_client_on_lblnet.set()
 
                     # report change if relevant
@@ -164,7 +189,10 @@ class CBorgNetworkMonitor:
 
                 else:
                     if not self.silent and (self.on_lbl_net is None or self.on_lbl_net is True):
-                        print("cborg-client: Not on LBLNet: Setting endpoint to https://api.cborg.lbl.net")
+                        if any_match:
+                            print("cborg-client: On LBLNet but local API TLS verification failed: Setting endpoint to https://api.cborg.lbl.net")
+                        else:
+                            print("cborg-client: Not on LBLNet: Setting endpoint to https://api.cborg.lbl.net")
                     self.on_lbl_net = False
                     cborg_client_on_lblnet.clear()
 
@@ -209,11 +237,13 @@ class CBorgNetworkMonitor:
     def local_api_tls_available(self):
         try:
             with socket.create_connection(('api-local.cborg.lbl.gov', 443), timeout=3) as connection:
-                with ssl.create_default_context().wrap_socket(
+                with ssl.create_default_context(cafile=CA_BUNDLE).wrap_socket(
                     connection, server_hostname='api-local.cborg.lbl.gov'
                 ):
                     return True
-        except (OSError, ssl.SSLError):
+        except (OSError, ssl.SSLError) as error:
+            if not self.silent:
+                print(f"cborg-client: Local API TLS error: {error}")
             return False
 
     def is_ip_in_subnet(self, ip, subnet):
@@ -452,7 +482,7 @@ if __name__ == '__main__':
         '--port', '8001', 
         '--ports', '8002', '8003', 
         '--log-level', 'ERROR',
-        '--ca-file', ssl.get_default_verify_paths().cafile
+        '--ca-file', CA_BUNDLE
         ]
 
     m = CBorgNetworkMonitor()
