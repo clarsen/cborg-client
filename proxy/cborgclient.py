@@ -59,6 +59,8 @@ import signal
 
 import json
 import requests
+import ssl
+import socket
 
 class CBorgUsageMonitor:
 
@@ -152,7 +154,7 @@ class CBorgNetworkMonitor:
                         if ip is not None and self.is_ip_in_subnet(ip, subnet):
                             any_match = True
 
-                if any_match:
+                if any_match and self.local_api_tls_available():
                     cborg_client_on_lblnet.set()
 
                     # report change if relevant
@@ -203,6 +205,16 @@ class CBorgNetworkMonitor:
         except requests.RequestException as e:
             print(f"cborg-client: Error fetching public IP: {e}")
             return None
+
+    def local_api_tls_available(self):
+        try:
+            with socket.create_connection(('api-local.cborg.lbl.gov', 443), timeout=3) as connection:
+                with ssl.create_default_context().wrap_socket(
+                    connection, server_hostname='api-local.cborg.lbl.gov'
+                ):
+                    return True
+        except (OSError, ssl.SSLError):
+            return False
 
     def is_ip_in_subnet(self, ip, subnet):
         try:
@@ -266,7 +278,7 @@ if proxy_mode_threaded or multiprocessing.current_process().name != "MainProcess
         )
     ))
 
-    if cborg_network_monitor.is_on_lblnet():
+    if cborg_network_monitor.is_on_lblnet() and cborg_network_monitor.local_api_tls_available():
         cborg_client_on_lblnet.set()
 
     cborg_network_monitor_thread = threading.Thread(target=cborg_network_monitor.run_monitor, daemon=True)
@@ -439,7 +451,8 @@ if __name__ == '__main__':
         '--timeout', '60', 
         '--port', '8001', 
         '--ports', '8002', '8003', 
-        '--log-level', 'ERROR'
+        '--log-level', 'ERROR',
+        '--ca-file', ssl.get_default_verify_paths().cafile
         ]
 
     m = CBorgNetworkMonitor()

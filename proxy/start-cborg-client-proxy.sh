@@ -1,22 +1,16 @@
 #!/bin/sh
+set -eu
 
-SCRIPT_DIR=$(cd "$(dirname '$0')" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+UV=${UV:-uv}
 
-echo "Checking for updates..."
-cd $SCRIPT_DIR && git pull
+if [ -z "${CBORG_API_KEY:-}" ]; then
+    echo "CBORG_API_KEY must be set before starting the proxy." >&2
+    exit 1
+fi
 
-echo "Activate Virtual Environment"
-. $SCRIPT_DIR/venv/bin/activate
-
-echo "Python Version Check: "
-python3 -V
-
-echo "Start"
-python3 $SCRIPT_DIR/cborgclient.py
-
-echo "Deactivate"
-deactivate
-
-echo "Done"
+exec "$UV" run --no-project --python 3.12 \
+    --with-requirements "$SCRIPT_DIR/requirements.txt" \
+    python "$SCRIPT_DIR/cborgclient.py"
 
 
