@@ -50,6 +50,7 @@ The proxy service runs on your local machine, enabling LLM completion requests t
 ports 8001-8003 on localhost. API keys are injected automatically from the $CBORG_API_KEY environment variable.
 In addition, the proxy service monitors your key usage (budget) and network connectivity status, automatically
 routing traffic to the Cloudflare-based endpoint or the LBLNet-routed endpoint depending on network status.
+The proxy uses the public endpoint when this machine cannot verify the LBLNet endpoint's TLS certificate.
 
 #### When Client is on Public Internet
 
@@ -76,11 +77,18 @@ e.g. VSCode with  ==>  http://localhost:8001  ==>  https://api-local.cborg.lbl.g
 - Queues chat completion calls, only allowing one to process at a time
 - Periodically monitors and reports key usage and maximum budget
 
-### Instructions:
+### Start the proxy
 
-1. Set your CBorg API key as an environment variable in CBORG_API_KEY.
-2. Set the API Base URL in your application to http://localhost:8001
-3. Run `./proxy/start-cborg-client-proxy.sh`
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and set `CBORG_API_KEY` in your environment.
+From the repository root, run:
+
+```sh
+./proxy/start-cborg-client-proxy.sh
+```
+
+The launcher uses uv with Python 3.12 and installs the dependencies from `proxy/requirements.txt` as needed.
+Building `netifaces` from source requires a C compiler on systems without a compatible wheel.
+Set the API Base URL in your application to `http://localhost:8001`.
 
 The proxy service on port 8001 will automatically inject your API keys, therefore API keys do not need to be stored in the user application.
 
